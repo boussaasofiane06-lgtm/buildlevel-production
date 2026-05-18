@@ -5,6 +5,14 @@ import { products, blogPosts, digitalProducts, affiliateProducts, membershipTier
 
 const router = Router();
 
+function parsePositiveId(value: string): number {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("Invalid product id");
+  }
+  return id;
+}
+
 // ─── Products ─────────────────────────────────────────────────────────────────
 router.get("/products", async (req, res) => {
   try {
@@ -22,11 +30,7 @@ router.get("/products", async (req, res) => {
 
 router.get("/products/:id", async (req, res) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) {
-      res.status(400).json({ error: "Invalid product id" });
-      return;
-    }
+    const id = parsePositiveId(req.params.id);
     const db = await getDb();
     const [row] = await db
       .select()
@@ -41,7 +45,8 @@ router.get("/products/:id", async (req, res) => {
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     res.json(row);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    const status = e.message === "Invalid product id" ? 400 : 500;
+    res.status(status).json({ error: e.message });
   }
 });
 

@@ -1,7 +1,8 @@
 import "dotenv/config";
-import express from "express";
+import express, { ErrorRequestHandler } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { pathToFileURL } from "url";
 import adminRoutes from "./routes/admin.js";
 import publicRoutes from "./routes/public.js";
 import stripeRoutes from "./routes/stripe.js";
@@ -66,8 +67,23 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-app.listen(PORT, () => {
-  console.log(`[Server] BUILD LEVEL backend running on port ${PORT}`);
-});
+const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  const message = err instanceof Error ? err.message : "Internal server error";
+  const status = message.startsWith("CORS:") ? 403 : 500;
+  res.status(status).json({ error: message });
+};
+
+app.use(errorHandler);
+
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  app.listen(PORT, () => {
+    console.log(`[Server] BUILD LEVEL backend running on port ${PORT}`);
+  });
+}
 
 export default app;
