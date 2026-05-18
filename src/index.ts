@@ -12,8 +12,10 @@ const PORT = process.env.PORT || 3001;
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  process.env.ADMIN_FRONTEND_URL,
   "http://localhost:5173",
   "http://localhost:3000",
+  "http://localhost:4173",
 ]
   .filter(Boolean)
   .flatMap((origin) => {
@@ -55,8 +57,8 @@ app.use(cookieParser());
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/api/admin", adminRoutes);
-app.use("/api", publicRoutes);
 app.use("/api/stripe", stripeRoutes);
+app.use("/api", publicRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => {

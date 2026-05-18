@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "admin:dev": "pnpm --dir apps/admin dev",
+    "admin:build": "pnpm --dir apps/admin build",
     "start": "node dist/index.js",
     "db:push": "drizzle-kit push"
   },
