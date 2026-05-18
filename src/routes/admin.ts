@@ -10,6 +10,10 @@ import { requireAdmin, verifyAdminPassword, signAdminToken, ADMIN_COOKIE } from 
 
 const router = Router();
 
+function insertedId(row: { id: number | bigint } | undefined): number {
+  return row ? Number(row.id) : 0;
+}
+
 // ─── Login ────────────────────────────────────────────────────────────────────
 router.post("/login", (req: Request, res: Response) => {
   const { password } = req.body;
@@ -71,7 +75,7 @@ router.post("/products", requireAdmin, async (req: Request, res: Response) => {
   try {
     const data = productSchema.parse(req.body);
     const db = await getDb();
-    await db.insert(products).values({
+    const [inserted] = await db.insert(products).values({
       name: data.name,
       description: data.description,
       price: String(data.price),
@@ -89,9 +93,8 @@ router.post("/products", requireAdmin, async (req: Request, res: Response) => {
       shopifyVariantId: data.shopifyVariantId,
       shopifyProductId: data.shopifyProductId,
       printifyProductId: data.printifyProductId,
-    });
-    const [inserted] = await db.select({ id: products.id }).from(products).orderBy(asc(products.createdAt)).limit(1);
-    res.json({ success: true, id: inserted?.id ?? 0 });
+    }).$returningId();
+    res.json({ success: true, id: insertedId(inserted) });
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
@@ -143,7 +146,7 @@ router.post("/blog", requireAdmin, async (req: Request, res: Response) => {
   try {
     const data = blogSchema.parse(req.body);
     const db = await getDb();
-    await db.insert(blogPosts).values({
+    const [inserted] = await db.insert(blogPosts).values({
       title: data.title,
       slug: data.slug,
       excerpt: data.excerpt,
@@ -154,9 +157,8 @@ router.post("/blog", requireAdmin, async (req: Request, res: Response) => {
       published: data.published,
       featured: data.featured,
       sortOrder: data.sortOrder,
-    });
-    const [inserted] = await db.select({ id: blogPosts.id }).from(blogPosts).orderBy(asc(blogPosts.createdAt)).limit(1);
-    res.json({ success: true, id: inserted?.id ?? 0 });
+    }).$returningId();
+    res.json({ success: true, id: insertedId(inserted) });
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
@@ -209,7 +211,7 @@ router.post("/digital", requireAdmin, async (req: Request, res: Response) => {
   try {
     const data = digitalSchema.parse(req.body);
     const db = await getDb();
-    await db.insert(digitalProducts).values({
+    const [inserted] = await db.insert(digitalProducts).values({
       name: data.name,
       description: data.description,
       price: String(data.price),
@@ -224,9 +226,8 @@ router.post("/digital", requireAdmin, async (req: Request, res: Response) => {
       stripePaymentLink: data.stripePaymentLink,
       published: data.published,
       sortOrder: data.sortOrder,
-    });
-    const [inserted] = await db.select({ id: digitalProducts.id }).from(digitalProducts).orderBy(asc(digitalProducts.createdAt)).limit(1);
-    res.json({ success: true, id: inserted?.id ?? 0 });
+    }).$returningId();
+    res.json({ success: true, id: insertedId(inserted) });
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
