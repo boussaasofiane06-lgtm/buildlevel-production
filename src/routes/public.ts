@@ -22,8 +22,22 @@ router.get("/products", async (req, res) => {
 
 router.get("/products/:id", async (req, res) => {
   try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid product id" });
+      return;
+    }
     const db = await getDb();
-    const [row] = await db.select().from(products).where(eq(products.id, parseInt(req.params.id))).limit(1);
+    const [row] = await db
+      .select()
+      .from(products)
+      .where(and(
+        eq(products.id, id),
+        eq(products.published, true),
+        eq(products.hidden, false),
+        eq(products.delisted, false),
+      ))
+      .limit(1);
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     res.json(row);
   } catch (e: any) {
@@ -49,7 +63,11 @@ router.get("/blog", async (req, res) => {
 router.get("/blog/:slug", async (req, res) => {
   try {
     const db = await getDb();
-    const [row] = await db.select().from(blogPosts).where(eq(blogPosts.slug, req.params.slug)).limit(1);
+    const [row] = await db
+      .select()
+      .from(blogPosts)
+      .where(and(eq(blogPosts.slug, req.params.slug), eq(blogPosts.published, true)))
+      .limit(1);
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     res.json(row);
   } catch (e: any) {

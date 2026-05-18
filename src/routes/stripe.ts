@@ -1,11 +1,30 @@
 import { Router, Request, Response } from "express";
 import Stripe from "stripe";
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb } from "../db/index.js";
 import { digitalProducts, digitalPurchases } from "../db/schema.js";
 
 const router = Router();
+
+const checkoutItemSchema = z.object({
+  name: z.string().min(1),
+  image: z.string().optional().nullable(),
+  priceUSD: z.coerce.number().positive(),
+  quantity: z.coerce.number().int().positive(),
+});
+
+const checkoutSchema = z.object({
+  items: z.array(checkoutItemSchema).min(1),
+  currency: z.string().regex(/^[a-z]{3}$/i).default("usd"),
+  customerEmail: z.string().email().optional().nullable(),
+});
+
+const digitalCheckoutSchema = z.object({
+  productId: z.coerce.number().int().positive(),
+  customerEmail: z.string().email().optional().nullable(),
+});
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY || "", {
@@ -17,12 +36,12 @@ function getStripe() {
 router.post("/checkout", async (req: Request, res: Response) => {
   try {
     const stripe = getStripe();
-    const { items, currency = "usd", customerEmail } = req.body;
+    const { items, currency, customerEmail } = checkoutSchema.parse(req.body);
     const origin = req.headers.origin || process.env.FRONTEND_URL || "http://localhost:5173";
 
-    const lineItems = items.map((item: any) => ({
+    const lineItems = items.map((item) => ({
       price_data: {
-        currency,
+        currency: currency.toLowerCase(),
         product_data: {
           name: item.name,
           images: item.image ? [item.image] : [],
@@ -46,7 +65,8 @@ router.post("/checkout", async (req: Request, res: Response) => {
 
     res.json({ url: session.url });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    const status = e instanceof z.ZodError ? 400 : 500;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -54,11 +74,15 @@ router.post("/checkout", async (req: Request, res: Response) => {
 router.post("/digital-checkout", async (req: Request, res: Response) => {
   try {
     const stripe = getStripe();
-    const { productId, customerEmail } = req.body;
+    const { productId, customerEmail } = digitalCheckoutSchema.parse(req.body);
     const origin = req.headers.origin || process.env.FRONTEND_URL || "http://localhost:5173";
 
     const db = await getDb();
-    const [product] = await db.select().from(digitalProducts).where(eq(digitalProducts.id, productId)).limit(1);
+    const [product] = await db
+      .select()
+      .from(digitalProducts)
+      .where(and(eq(digitalProducts.id, productId), eq(digitalProducts.published, true)))
+      .limit(1);
     if (!product) { res.status(404).json({ error: "Product not found" }); return; }
 
     const session = await stripe.checkout.sessions.create({

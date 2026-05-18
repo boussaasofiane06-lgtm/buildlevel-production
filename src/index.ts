@@ -14,17 +14,30 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
   "http://localhost:3000",
-].filter(Boolean) as string[];
+].filter(Boolean).map(origin => {
+  try {
+    return new URL(origin as string).origin;
+  } catch {
+    return (origin as string).replace(/\/$/, "");
+  }
+});
+
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return allowedOrigins.includes(url.origin) || url.hostname.endsWith(".pages.dev");
+  } catch {
+    return allowedOrigins.includes(origin.replace(/\/$/, ""));
+  }
+}
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.some(o => origin.startsWith(o.replace(/\/$/, "")))) {
+    if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
-    // Allow all Cloudflare Pages preview URLs
-    if (origin.endsWith(".pages.dev")) return callback(null, true);
     callback(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,
