@@ -1,14 +1,57 @@
 import { Router, Request, Response } from "express";
 import Stripe from "stripe";
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb } from "../db/index.js";
 import { digitalProducts, digitalPurchases } from "../db/schema.js";
 
 const router = Router();
 
+const checkoutItemSchema = z.object({
+  name: z.string().min(1),
+  image: z.string().optional().nullable(),
+  priceUSD: z.coerce.number().positive(),
+  quantity: z.coerce.number().int().positive(),
+});
+
+const checkoutSchema = z.object({
+  items: z.array(checkoutItemSchema).min(1),
+  currency: z.string().regex(/^[a-z]{3}$/i).default("usd"),
+  customerEmail: z.string().email().optional().nullable(),
+});
+
+const digitalCheckoutSchema = z.object({
+  productId: z.coerce.number().int().positive(),
+  customerEmail: z.string().email(),
+});
+
+class ConfigError extends Error {
+  statusCode = 503;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    return error.issues.map(issue => `${issue.path.join(".") || "body"}: ${issue.message}`).join("; ");
+  }
+  return error instanceof Error ? error.message : "Request failed";
+}
+
+function sendRouteError(res: Response, error: unknown) {
+  const status = error instanceof z.ZodError
+    ? 400
+    : error instanceof ConfigError
+      ? error.statusCode
+      : 500;
+  res.status(status).json({ error: formatError(error) });
+}
+
 function getStripe() {
-  return new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new ConfigError("STRIPE_SECRET_KEY is not configured");
+  }
+  return new Stripe(secretKey, {
     apiVersion: "2025-01-27.acacia" as any,
   });
 }
@@ -17,12 +60,12 @@ function getStripe() {
 router.post("/checkout", async (req: Request, res: Response) => {
   try {
     const stripe = getStripe();
-    const { items, currency = "usd", customerEmail } = req.body;
+    const { items, currency, customerEmail } = checkoutSchema.parse(req.body);
     const origin = req.headers.origin || process.env.FRONTEND_URL || "http://localhost:5173";
 
-    const lineItems = items.map((item: any) => ({
+    const lineItems = items.map((item) => ({
       price_data: {
-        currency,
+        currency: currency.toLowerCase(),
         product_data: {
           name: item.name,
           images: item.image ? [item.image] : [],
@@ -46,7 +89,7 @@ router.post("/checkout", async (req: Request, res: Response) => {
 
     res.json({ url: session.url });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    sendRouteError(res, e);
   }
 });
 
@@ -54,11 +97,15 @@ router.post("/checkout", async (req: Request, res: Response) => {
 router.post("/digital-checkout", async (req: Request, res: Response) => {
   try {
     const stripe = getStripe();
-    const { productId, customerEmail } = req.body;
+    const { productId, customerEmail } = digitalCheckoutSchema.parse(req.body);
     const origin = req.headers.origin || process.env.FRONTEND_URL || "http://localhost:5173";
 
     const db = await getDb();
-    const [product] = await db.select().from(digitalProducts).where(eq(digitalProducts.id, productId)).limit(1);
+    const [product] = await db
+      .select()
+      .from(digitalProducts)
+      .where(and(eq(digitalProducts.id, productId), eq(digitalProducts.published, true)))
+      .limit(1);
     if (!product) { res.status(404).json({ error: "Product not found" }); return; }
 
     const session = await stripe.checkout.sessions.create({
@@ -79,7 +126,7 @@ router.post("/digital-checkout", async (req: Request, res: Response) => {
 
     res.json({ url: session.url });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    sendRouteError(res, e);
   }
 });
 
@@ -90,14 +137,20 @@ router.post("/webhook", async (req: Request, res: Response) => {
 
   let event: Stripe.Event;
   try {
-    const stripe = getStripe();
     if (webhookSecret && sig) {
+      const stripe = getStripe();
       event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } else if (process.env.NODE_ENV === "production") {
+      throw new ConfigError("STRIPE_WEBHOOK_SECRET is not configured");
     } else {
       event = JSON.parse(req.body.toString());
     }
   } catch (e: any) {
-    res.status(400).json({ error: `Webhook error: ${e.message}` });
+    if (e instanceof ConfigError) {
+      sendRouteError(res, e);
+    } else {
+      res.status(400).json({ error: `Webhook error: ${formatError(e)}` });
+    }
     return;
   }
 
@@ -113,10 +166,17 @@ router.post("/webhook", async (req: Request, res: Response) => {
       try {
         const db = await getDb();
         const token = crypto.randomBytes(32).toString("hex");
+        const productId = Number(session.metadata.productId);
+        if (!Number.isInteger(productId) || productId <= 0) {
+          throw new Error("Invalid digital product metadata");
+        }
+        const paymentIntent = typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id ?? null;
         await db.insert(digitalPurchases).values({
-          productId: parseInt(session.metadata.productId),
+          productId,
           email: session.customer_email || "",
-          stripePaymentIntentId: session.payment_intent as string,
+          stripePaymentIntentId: paymentIntent,
           downloadToken: token,
           createdAt: new Date(),
         });

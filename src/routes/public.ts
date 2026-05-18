@@ -5,6 +5,14 @@ import { products, blogPosts, digitalProducts, affiliateProducts, membershipTier
 
 const router = Router();
 
+function parsePositiveId(value: string): number {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("Invalid product id");
+  }
+  return id;
+}
+
 // ─── Products ─────────────────────────────────────────────────────────────────
 router.get("/products", async (req, res) => {
   try {
@@ -22,12 +30,23 @@ router.get("/products", async (req, res) => {
 
 router.get("/products/:id", async (req, res) => {
   try {
+    const id = parsePositiveId(req.params.id);
     const db = await getDb();
-    const [row] = await db.select().from(products).where(eq(products.id, parseInt(req.params.id))).limit(1);
+    const [row] = await db
+      .select()
+      .from(products)
+      .where(and(
+        eq(products.id, id),
+        eq(products.published, true),
+        eq(products.hidden, false),
+        eq(products.delisted, false),
+      ))
+      .limit(1);
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     res.json(row);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    const status = e.message === "Invalid product id" ? 400 : 500;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -49,7 +68,11 @@ router.get("/blog", async (req, res) => {
 router.get("/blog/:slug", async (req, res) => {
   try {
     const db = await getDb();
-    const [row] = await db.select().from(blogPosts).where(eq(blogPosts.slug, req.params.slug)).limit(1);
+    const [row] = await db
+      .select()
+      .from(blogPosts)
+      .where(and(eq(blogPosts.slug, req.params.slug), eq(blogPosts.published, true)))
+      .limit(1);
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     res.json(row);
   } catch (e: any) {
