@@ -466,14 +466,14 @@ async function upsertSettings(prefix: string, values: Record<string, unknown>) {
 
 async function dashboardSnapshot() {
   const db = await getDb();
-  const [productRows, blogRows, digitalRows, affiliateRows, membershipRows, purchaseRows] = await Promise.all([
-    db.select().from(products),
-    db.select().from(blogPosts),
-    db.select().from(digitalProducts),
-    db.select().from(affiliateProducts),
-    db.select().from(membershipTiers),
-    db.select().from(digitalPurchases),
-  ]);
+  // Keep these selects explicit instead of batching Drizzle's thenable query builders
+  // through Promise.all; that avoids TypeScript overload mismatches in clean builds.
+  const productRows = await db.select().from(products);
+  const blogRows = await db.select().from(blogPosts);
+  const digitalRows = await db.select().from(digitalProducts);
+  const affiliateRows = await db.select().from(affiliateProducts);
+  const membershipRows = await db.select().from(membershipTiers);
+  const purchaseRows = await db.select().from(digitalPurchases);
   const revenue = purchaseRows.length;
   return {
     metrics: {
